@@ -29,7 +29,7 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
-void execute(char* const args[]) {
+void launch_process(char* const args[]) {
   int pid = fork();
   if (pid < 0) {
     fprintf(stderr, "fork failed\n");
@@ -56,35 +56,70 @@ void execute(char* const args[]) {
   }
 }
 
+void execute(char* const args[]) {
+  int args_size = 0;
+  while (args[args_size] != NULL) args_size++;
+
+  if (args[0] == NULL) return;
+  if (strcmp(args[0], "exit") == 0) {
+    exit(EXIT_SUCCESS);
+  }
+
+  if (strcmp(args[0], "cd") == 0) {
+    if (args_size == 2) {
+      if (chdir(args[1]) == -1) {
+        perror(NULL);
+      }
+    } else {
+      fprintf(stderr, "cd: expects 2 args, but got %d", args_size);
+    }
+    return;
+  }
+
+  launch_process(args);
+}
+
+char* read_line() {
+  char* line = NULL;
+  size_t linecap = 0;
+  ssize_t linelen;
+
+  if (getline(&line, &linecap, stdin) < 0) exit(EXIT_FAILURE);
+
+  return line;
+}
+
+char** parse_args(char* line) {
+  int buf_size = TOKEN_BUF_SIZE;
+  char** args = calloc(buf_size, sizeof(char*));
+  int args_size = 0;
+  char* token;
+  while ((token = strsep(&line, " \t\n"))) {
+    if (strlen(token) == 0) continue;
+
+    args[args_size] = token;
+    args_size++;
+    if (args_size >= buf_size) {
+      buf_size += TOKEN_BUF_SIZE;
+      args = realloc(args, buf_size * sizeof(char*));
+    }
+    if (token == NULL) break;
+  }
+
+  return args;
+}
+
 int main(int argc, char* argv[]) {
   while (1) {
-    char* line = NULL;
-    size_t linecap = 0;
-    ssize_t linelen;
 
     printf("> ");
-    if (getline(&line, &linecap, stdin) < 0) exit(EXIT_FAILURE);
-    if (strcmp(line, "exit\n") == 0) exit(0);
-
-    int buf_size = TOKEN_BUF_SIZE;
-    char** args = calloc(buf_size, sizeof(char*));
-    int args_size = 0;
-    char* token;
-    while ((token = strsep(&line, " \t\n"))) {
-      if (strlen(token) == 0) continue;
-
-      args[args_size] = token;
-      args_size++;
-      if (args_size >= buf_size) {
-        buf_size += TOKEN_BUF_SIZE;
-        args = realloc(args, buf_size * sizeof(char*));
-      }
-      if (token == NULL) break;
-    }
+    char* line = read_line();
+    char** args = parse_args(line);
 
     execute(args);
 
     free(line);
+    free(args);
   }
 
   return 0;
