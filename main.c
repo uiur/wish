@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/errno.h>
+#include <fcntl.h>
 
 #define TOKEN_BUF_SIZE 100
 #define FILE_PATH_BUF_SIZE 100
@@ -29,12 +30,23 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
-void launch_process(char* const args[]) {
+void launch_process(char* const args[], const char* output) {
   int pid = fork();
   if (pid < 0) {
     fprintf(stderr, "fork failed\n");
     exit(EXIT_FAILURE);
   } else if (pid == 0) {
+    if (output != NULL) {
+      int fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
+      if (fd == -1) {
+        perror(NULL);
+        exit(EXIT_FAILURE);
+      }
+
+      close(1);
+      dup(fd);
+    }
+
     char* file_path = search_paths(args[0]);
     if (file_path == NULL) {
       fprintf(stderr, "command not found: %s\n", args[0]);
@@ -56,7 +68,7 @@ void launch_process(char* const args[]) {
   }
 }
 
-void execute(char* const args[]) {
+void execute(char* args[]) {
   int args_size = 0;
   while (args[args_size] != NULL) args_size++;
 
@@ -76,7 +88,19 @@ void execute(char* const args[]) {
     return;
   }
 
-  launch_process(args);
+  char* redirect_output = NULL;
+  for (int i = 0; args[i] != NULL; i++) {
+    if (strcmp(args[i], ">") == 0) {
+      if (args[i + 1] == NULL) {
+        fprintf(stderr, "parse error after >\n");
+        return;
+      }
+      redirect_output = args[i + 1];
+      args[i] = NULL;
+    }
+  }
+
+  launch_process(args, redirect_output);
 }
 
 char* read_line() {
