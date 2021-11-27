@@ -30,7 +30,19 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
-void exec_command(char* const args[], const char* output) {
+void exec_command(char* args[]) {
+  char* output;
+  for (int i = 0; args[i] != NULL; i++) {
+    if (strcmp(args[i], ">") == 0) {
+      if (args[i + 1] == NULL) {
+        fprintf(stderr, "parse error after >\n");
+        exit(EXIT_FAILURE);
+      }
+      output = args[i + 1];
+      args[i] = NULL;
+    }
+  }
+
   if (output != NULL) {
     int fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
     if (fd == -1) {
@@ -56,14 +68,38 @@ void exec_command(char* const args[], const char* output) {
   exit(0);
 }
 
-void launch_process(char* const args[], const char* output) {
-  int pid = fork();
-  if (pid < 0) {
-    fprintf(stderr, "fork failed\n");
-    exit(EXIT_FAILURE);
-  } else if (pid == 0) {
-    exec_command(args, output);
-  } else {
+void launch_process(char* const args[]) {
+  int* pids = calloc(TOKEN_BUF_SIZE, sizeof(int));
+  int process_size = 0;
+  int offset = 0;
+  char** current_args = calloc(TOKEN_BUF_SIZE, sizeof(char*));
+  int i = 0;
+  while (1) {
+    if (args[i] == NULL || strcmp(args[i], "&") == 0)  {
+      current_args[i - offset] = NULL;
+      offset = i + 1;
+
+      process_size++;
+      int pid = fork();
+
+      if (pid == 0) {
+        exec_command(current_args);
+      } else if (pid < 0) {
+        fprintf(stderr, "fork failed\n");
+        exit(EXIT_FAILURE);
+      } else {
+        pids[process_size - 1] = pid;
+        if (args[i] == NULL) break;
+      }
+    } else {
+      current_args[i - offset] = args[i];
+    }
+
+    i++;
+  }
+
+  for (int i = 0; i < process_size; i++) {
+    int pid = pids[i];
     int rc_wait = waitpid(pid, NULL, WUNTRACED);
     if (rc_wait == -1) {
       fprintf(stderr, "child failed:\n");
@@ -92,19 +128,7 @@ void execute(char* args[]) {
     return;
   }
 
-  char* redirect_output = NULL;
-  for (int i = 0; args[i] != NULL; i++) {
-    if (strcmp(args[i], ">") == 0) {
-      if (args[i + 1] == NULL) {
-        fprintf(stderr, "parse error after >\n");
-        return;
-      }
-      redirect_output = args[i + 1];
-      args[i] = NULL;
-    }
-  }
-
-  launch_process(args, redirect_output);
+  launch_process(args);
 }
 
 char* read_line() {
