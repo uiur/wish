@@ -30,37 +30,41 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
+void exec_command(char* const args[], const char* output) {
+  if (output != NULL) {
+    int fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
+    if (fd == -1) {
+      perror(NULL);
+      exit(EXIT_FAILURE);
+    }
+
+    close(1);
+    dup(fd);
+  }
+
+  char* file_path = search_paths(args[0]);
+  if (file_path == NULL) {
+    fprintf(stderr, "command not found: %s\n", args[0]);
+    exit(EXIT_FAILURE);
+  }
+  int rc_exec = execv(file_path, args);
+  if (rc_exec == -1) {
+    fprintf(stderr, "exec failed: %s\n", file_path);
+    perror(NULL);
+    exit(EXIT_FAILURE);
+  }
+  exit(0);
+}
+
 void launch_process(char* const args[], const char* output) {
   int pid = fork();
   if (pid < 0) {
     fprintf(stderr, "fork failed\n");
     exit(EXIT_FAILURE);
   } else if (pid == 0) {
-    if (output != NULL) {
-      int fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
-      if (fd == -1) {
-        perror(NULL);
-        exit(EXIT_FAILURE);
-      }
-
-      close(1);
-      dup(fd);
-    }
-
-    char* file_path = search_paths(args[0]);
-    if (file_path == NULL) {
-      fprintf(stderr, "command not found: %s\n", args[0]);
-      exit(EXIT_FAILURE);
-    }
-    int rc_exec = execv(file_path, args);
-    if (rc_exec == -1) {
-      fprintf(stderr, "exec failed: %s\n", file_path);
-      perror(NULL);
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
+    exec_command(args, output);
   } else {
-    int rc_wait = wait(NULL);
+    int rc_wait = waitpid(pid, NULL, WUNTRACED);
     if (rc_wait == -1) {
       fprintf(stderr, "child failed:\n");
       perror(NULL);
