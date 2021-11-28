@@ -11,8 +11,16 @@
 char *paths[] = {
   "",
   "/bin/",
+  "/usr/bin/",
   NULL
 };
+
+void show_command(char* args[]) {
+  for (int i = 0; args[i] != NULL; i++) {
+    printf(" %s", args[i]);
+  }
+  puts("");
+}
 
 char* search_paths(const char* command) {
   int buf_size = FILE_PATH_BUF_SIZE;
@@ -31,18 +39,6 @@ char* search_paths(const char* command) {
 }
 
 void exec_shell_command(char* args[], int in_fd, int out_fd) {
-  char* output;
-  for (int i = 0; args[i] != NULL; i++) {
-    if (strcmp(args[i], ">") == 0) {
-      if (args[i + 1] == NULL) {
-        fprintf(stderr, "parse error after >\n");
-        exit(EXIT_FAILURE);
-      }
-      output = args[i + 1];
-      args[i] = NULL;
-    }
-  }
-
   if (in_fd != 0) {
     close(0);
     dup(in_fd);
@@ -51,17 +47,6 @@ void exec_shell_command(char* args[], int in_fd, int out_fd) {
   if (out_fd != 1) {
     close(1);
     dup(out_fd);
-  }
-
-  if (output != NULL) {
-    int fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
-    if (fd == -1) {
-      perror(NULL);
-      exit(EXIT_FAILURE);
-    }
-
-    close(1);
-    dup(fd);
   }
 
   char* file_path = search_paths(args[0]);
@@ -75,8 +60,44 @@ void exec_shell_command(char* args[], int in_fd, int out_fd) {
     perror(NULL);
     exit(EXIT_FAILURE);
   }
+
   exit(0);
 }
+
+char*** parse_shell_statement(char* const args[]) {
+  int size = 1;
+  while (args[size - 1] != NULL) size++;
+
+  char** current_args = calloc(size, sizeof(char*));
+  int current_args_index = 0;
+  char*** commands = calloc(size, sizeof(char**));
+  int commands_index = 0;
+
+  for (int i = 0; args[i] != NULL; i++) {
+    if (strcmp(args[i], "|") == 0) {
+      current_args[current_args_index] = NULL;
+
+      commands[commands_index] = current_args;
+      commands_index++;
+
+      current_args = calloc(size, sizeof(char*));
+      current_args_index = 0;
+      continue;
+    }
+
+    current_args[current_args_index] = args[i];
+    current_args_index++;
+  }
+
+  current_args[current_args_index] = NULL;
+  commands[commands_index] = current_args;
+  commands_index++;
+  commands[commands_index] = NULL;
+
+
+  return commands;
+}
+
 
 void exec_shell_statement(char* const args[]) {
   int size = 1;
@@ -97,18 +118,60 @@ void exec_shell_statement(char* const args[]) {
     real_args[i+1] = NULL;
   }
 
-  int in_fd = 0;
-  int out_fd = 1;
+  char*** commands = parse_shell_statement(real_args);
 
+  int dest_fd = 1;
   if (output != NULL) {
-    out_fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
-    if (out_fd == -1) {
+    dest_fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
+    if (dest_fd == -1) {
       perror(NULL);
       exit(EXIT_FAILURE);
     }
   }
 
-  exec_shell_command(real_args, in_fd, out_fd);
+  int* pids = calloc(size, sizeof(int));
+
+  int current_pipe_fds[2];
+  current_pipe_fds[0] = 0;
+  current_pipe_fds[1] = 0;
+  for (int i = 0; commands[i] != NULL; i++) {
+    int in_fd = 0;
+    if (i > 0) {
+      in_fd = current_pipe_fds[0];
+      close(current_pipe_fds[1]);
+    }
+
+    int out_fd;
+    if (commands[i+1] != NULL) {
+      if (pipe(current_pipe_fds) == -1) {
+        perror(NULL);
+        exit(EXIT_FAILURE);
+      }
+      out_fd = current_pipe_fds[1];
+    } else {
+      out_fd = dest_fd;
+    }
+
+    int pid = fork(); // fork_or_die
+    if (pid == 0) {
+      if (out_fd != dest_fd) close(current_pipe_fds[0]);
+      exec_shell_command(commands[i], in_fd, out_fd);
+      exit(EXIT_SUCCESS);
+    }
+
+    // printf("%s: %d %d - %d\n", commands[i][0], pid, in_fd, out_fd);
+    pids[i] = pid;
+  }
+
+  for (int i = 0; commands[i] != NULL; i++) {
+    int pid = pids[i];
+    int rc_wait = waitpid(pid, NULL, WUNTRACED);
+    if (rc_wait == -1) {
+      fprintf(stderr, "child failed:\n");
+      perror(NULL);
+    }
+  }
+
   free(real_args);
 }
 
