@@ -30,7 +30,7 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
-void exec_command(char* args[]) {
+void exec_shell_command(char* args[], int in_fd, int out_fd) {
   char* output;
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], ">") == 0) {
@@ -41,6 +41,16 @@ void exec_command(char* args[]) {
       output = args[i + 1];
       args[i] = NULL;
     }
+  }
+
+  if (in_fd != 0) {
+    close(0);
+    dup(in_fd);
+  }
+
+  if (out_fd != 1) {
+    close(1);
+    dup(out_fd);
   }
 
   if (output != NULL) {
@@ -68,37 +78,89 @@ void exec_command(char* args[]) {
   exit(0);
 }
 
-void launch_process(char* const args[]) {
-  int* pids = calloc(TOKEN_BUF_SIZE, sizeof(int));
-  int process_size = 0;
-  int offset = 0;
-  char** current_args = calloc(TOKEN_BUF_SIZE, sizeof(char*));
-  int i = 0;
-  while (1) {
-    if (args[i] == NULL || strcmp(args[i], "&") == 0)  {
-      current_args[i - offset] = NULL;
-      offset = i + 1;
+void exec_shell_statement(char* const args[]) {
+  int size = 1;
+  while (args[size - 1] != NULL) size++;
+  char** real_args = calloc(size, sizeof(char*));
 
-      process_size++;
-      int pid = fork();
-
-      if (pid == 0) {
-        exec_command(current_args);
-      } else if (pid < 0) {
-        fprintf(stderr, "fork failed\n");
+  char* output = NULL;
+  for (int i = 0; args[i] != NULL; i++) {
+    if (strcmp(args[i], ">") == 0) {
+      if (args[i + 1] == NULL) {
+        fprintf(stderr, "parse error after >\n");
         exit(EXIT_FAILURE);
-      } else {
-        pids[process_size - 1] = pid;
-        if (args[i] == NULL) break;
       }
-    } else {
-      current_args[i - offset] = args[i];
+      output = args[i + 1];
+      break;
     }
-
-    i++;
+    real_args[i] = args[i];
+    real_args[i+1] = NULL;
   }
 
-  for (int i = 0; i < process_size; i++) {
+  int in_fd = 0;
+  int out_fd = 1;
+
+  if (output != NULL) {
+    out_fd = open(output, O_RDWR|O_CREAT|O_TRUNC, 0644);
+    if (out_fd == -1) {
+      perror(NULL);
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  exec_shell_command(real_args, in_fd, out_fd);
+  free(real_args);
+}
+
+int run_shell_statement(char* args[]) {
+  int pid = fork();
+
+  if (pid == 0) {
+    exec_shell_statement(args);
+    exit(EXIT_SUCCESS);
+  } else if (pid < 0) {
+    fprintf(stderr, "fork failed\n");
+    exit(EXIT_FAILURE);
+  }
+
+  // parent
+  return pid;
+}
+
+void launch_process(char* const args[]) {
+  int* pids = calloc(TOKEN_BUF_SIZE, sizeof(int));
+
+  int args_index = 0;
+  char** current_args = calloc(TOKEN_BUF_SIZE, sizeof(char*));
+  int current_args_index = 0;
+  char*** statements = calloc(TOKEN_BUF_SIZE, sizeof(char**));
+  int parallel_command_index = 0;
+
+  while (1) {
+    if (args[args_index] == NULL || strcmp(args[args_index], "&") == 0)  {
+      current_args[current_args_index] = NULL;
+      statements[parallel_command_index] = current_args;
+      parallel_command_index++;
+      statements[parallel_command_index] = NULL;
+
+      if (args[args_index] == NULL) break;
+
+      current_args = calloc(TOKEN_BUF_SIZE, sizeof(char*));
+      current_args_index = 0;
+    } else {
+      current_args[current_args_index] = args[args_index];
+      current_args_index++;
+    }
+
+    args_index++;
+  }
+
+  for (int i = 0; statements[i] != NULL; i++) {
+    int pid = run_shell_statement(statements[i]);
+    pids[i] = pid;
+  }
+
+  for (int i = 0; statements[i] != NULL; i++) {
     int pid = pids[i];
     int rc_wait = waitpid(pid, NULL, WUNTRACED);
     if (rc_wait == -1) {
