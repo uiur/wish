@@ -8,6 +8,8 @@
 #define TOKEN_BUF_SIZE 100
 #define FILE_PATH_BUF_SIZE 100
 
+typedef char* command_token;
+
 char *paths[] = {
   "",
   "/bin/",
@@ -33,7 +35,7 @@ int fork_or_die() {
   return pid;
 }
 
-char* search_paths(const char* command) {
+char* search_paths(const command_token command) {
   int buf_size = FILE_PATH_BUF_SIZE;
   char* buf = malloc(sizeof(char) * buf_size);
 
@@ -49,7 +51,7 @@ char* search_paths(const char* command) {
   return NULL;
 }
 
-void exec_shell_command(char* args[], int in_fd, int out_fd) {
+void exec_shell_command(command_token args[], int in_fd, int out_fd) {
   if (in_fd != 0) {
     close(0);
     dup(in_fd);
@@ -75,7 +77,7 @@ void exec_shell_command(char* args[], int in_fd, int out_fd) {
   exit(0);
 }
 
-char*** parse_shell_statement(char* const args[]) {
+command_token** parse_shell_statement(command_token args[]) {
   int size = 1;
   while (args[size - 1] != NULL) size++;
 
@@ -110,7 +112,7 @@ char*** parse_shell_statement(char* const args[]) {
 }
 
 
-void exec_shell_statement(char* const args[]) {
+void exec_shell_statement(command_token args[]) {
   int size = 1;
   while (args[size - 1] != NULL) size++;
   char** real_args = calloc(size, sizeof(char*));
@@ -129,7 +131,7 @@ void exec_shell_statement(char* const args[]) {
     real_args[i+1] = NULL;
   }
 
-  char*** commands = parse_shell_statement(real_args);
+  command_token** commands = parse_shell_statement(real_args);
 
   int dest_fd = 1;
   if (output != NULL) {
@@ -186,7 +188,7 @@ void exec_shell_statement(char* const args[]) {
   free(real_args);
 }
 
-int run_shell_statement(char* args[]) {
+int run_shell_statement(command_token args[]) {
   int pid = fork_or_die();
 
   if (pid == 0) {
@@ -197,7 +199,7 @@ int run_shell_statement(char* args[]) {
   return pid;
 }
 
-void launch_process(char* const args[]) {
+void launch_process(command_token args[]) {
   int* pids = calloc(TOKEN_BUF_SIZE, sizeof(int));
 
   int args_index = 0;
@@ -273,9 +275,9 @@ char* read_line() {
   return line;
 }
 
-char** parse_args(char* line) {
+command_token* parse_args(char* line) {
   int buf_size = TOKEN_BUF_SIZE;
-  char** args = calloc(buf_size, sizeof(char*));
+  command_token* args = calloc(buf_size, sizeof(char*));
   int args_size = 0;
   char* token;
   while ((token = strsep(&line, " \t\n"))) {
@@ -298,7 +300,7 @@ int main(int argc, char* argv[]) {
 
     printf("> ");
     char* line = read_line();
-    char** args = parse_args(line);
+    command_token* args = parse_args(line);
 
     execute(args);
 
