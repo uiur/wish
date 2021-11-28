@@ -22,6 +22,17 @@ void show_command(char* args[]) {
   puts("");
 }
 
+int fork_or_die() {
+  int pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "fork failed\n");
+    perror(NULL);
+    exit(EXIT_FAILURE);
+  }
+
+  return pid;
+}
+
 char* search_paths(const char* command) {
   int buf_size = FILE_PATH_BUF_SIZE;
   char* buf = malloc(sizeof(char) * buf_size);
@@ -152,7 +163,7 @@ void exec_shell_statement(char* const args[]) {
       out_fd = dest_fd;
     }
 
-    int pid = fork(); // fork_or_die
+    int pid = fork_or_die();
     if (pid == 0) {
       if (out_fd != dest_fd) close(current_pipe_fds[0]);
       exec_shell_command(commands[i], in_fd, out_fd);
@@ -176,17 +187,13 @@ void exec_shell_statement(char* const args[]) {
 }
 
 int run_shell_statement(char* args[]) {
-  int pid = fork();
+  int pid = fork_or_die();
 
   if (pid == 0) {
     exec_shell_statement(args);
     exit(EXIT_SUCCESS);
-  } else if (pid < 0) {
-    fprintf(stderr, "fork failed\n");
-    exit(EXIT_FAILURE);
   }
 
-  // parent
   return pid;
 }
 
