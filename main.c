@@ -111,27 +111,27 @@ command_token** parse_shell_statement(command_token args[]) {
   return commands;
 }
 
-
-void exec_shell_statement(command_token args[]) {
-  int size = 1;
-  while (args[size - 1] != NULL) size++;
-  char** real_args = calloc(size, sizeof(char*));
-
-  char* output = NULL;
+char* extract_redirection(command_token args[]) {
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], ">") == 0) {
       if (args[i + 1] == NULL) {
         fprintf(stderr, "parse error after >\n");
         exit(EXIT_FAILURE);
       }
-      output = args[i + 1];
-      break;
+      args[i] = NULL;
+      return args[i + 1];
     }
-    real_args[i] = args[i];
-    real_args[i+1] = NULL;
   }
 
-  command_token** commands = parse_shell_statement(real_args);
+  return NULL;
+}
+
+void exec_shell_statement(command_token args[]) {
+  int size = 1;
+  while (args[size - 1] != NULL) size++;
+  char* output = extract_redirection(args);
+
+  command_token** commands = parse_shell_statement(args);
 
   int dest_fd = 1;
   if (output != NULL) {
@@ -184,8 +184,6 @@ void exec_shell_statement(command_token args[]) {
       perror(NULL);
     }
   }
-
-  free(real_args);
 }
 
 int run_shell_statement(command_token args[]) {
